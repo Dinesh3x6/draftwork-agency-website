@@ -837,7 +837,8 @@ if (form) {
     };
 
     try {
-      const response = await fetch('/api/inquiries', {
+      const apiBase = (typeof window !== 'undefined' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+      const response = await fetch(`${apiBase}/api/inquiries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
