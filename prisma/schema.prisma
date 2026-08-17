@@ -1,0 +1,26 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model ProjectInquiry {
+  id                 String   @id @default(uuid())
+  name               String
+  company            String?
+  email              String
+  phone              String?
+  projectType        String
+  expectedTimeline   String?
+  referenceWebsite   String?
+  projectDescription String
+  requiredFeatures   String?
+  status             String   @default("NEW")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("project_inquiries")
+}

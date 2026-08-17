@@ -1,0 +1,26 @@
+{
+  "name": "draftwork-agency-website_1",
+  "version": "1.0.0",
+  "description": "A single-page, production-ready website for a web development agency, built with plain HTML/CSS/JS (no build step required) so it runs anywhere immediately.",
+  "main": "script.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node -c script.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "nodemailer": "^9.0.5"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}
