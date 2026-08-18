@@ -10,6 +10,9 @@ const { PrismaClient } = require('@prisma/client');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Enable Trust Proxy for Render reverse proxy (allows rate-limiter to read X-Forwarded-For headers correctly)
+app.set('trust proxy', 1);
+
 // Configure Multer memory storage for uploaded attachments
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -75,6 +78,12 @@ async function sendFounderNotification(inquiry, files = []) {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASSWORD;
 
+  // Safe diagnostic logging (NEVER print actual password)
+  console.log('[EMAIL] SMTP host configured:', !!host);
+  console.log('[EMAIL] SMTP user configured:', !!user);
+  console.log('[EMAIL] SMTP password configured:', !!pass);
+  console.log('[EMAIL] SMTP port:', process.env.SMTP_PORT || 587);
+
   if (!host || !user || !pass) {
     console.warn('[EMAIL] SMTP credentials (SMTP_HOST, SMTP_USER, SMTP_PASSWORD) not fully configured. Email notification skipped.');
     return false;
@@ -84,8 +93,19 @@ async function sendFounderNotification(inquiry, files = []) {
     host: host,
     port: parseInt(process.env.SMTP_PORT || '587', 10),
     secure: process.env.SMTP_SECURE === 'true',
-    auth: { user, pass }
+    auth: { user, pass },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   });
+
+  try {
+    await transporter.verify();
+    console.log('[EMAIL] SMTP connection verified');
+  } catch (verifyErr) {
+    console.error('[EMAIL] SMTP verification failed:', verifyErr.message);
+    return false;
+  }
 
   const attachmentsList = Array.isArray(files) ? files : (files ? [files] : []);
   const fileNamesText = attachmentsList.length > 0
@@ -208,13 +228,20 @@ app.post('/api/inquiries', inquiryLimiter, upload.any(), async (req, res) => {
     }
 
     // 3. Send email notification to founder (after DB save) with uploaded binary attachments
-    await sendFounderNotification(savedRecord, uploadedFiles);
+    const emailSent = await sendFounderNotification(savedRecord, uploadedFiles);
 
-    // 4. Return success response to visitor
-    return res.status(200).json({
-      success: true,
-      message: "Thank you! Your project inquiry has been received. We'll get back to you soon."
-    });
+    // 4. Return controlled success response to visitor
+    if (emailSent) {
+      return res.status(200).json({
+        success: true,
+        message: "Your enquiry was submitted successfully."
+      });
+    } else {
+      return res.status(200).json({
+        success: true,
+        message: "Your enquiry was received successfully. Email notification is temporarily unavailable."
+      });
+    }
 
   } catch (err) {
     console.error('[SERVER] Unexpected error in /api/inquiries:', err.message);
