@@ -4,10 +4,17 @@ const path = require('path');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
+const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// Configure Multer memory storage for uploaded attachments
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 } // 15MB max file size
+});
 
 // Initialize Prisma client if DATABASE_URL is configured
 let prisma = null;
@@ -22,14 +29,21 @@ if (process.env.DATABASE_URL) {
 }
 
 // Middleware
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? (process.env.CORS_ORIGIN.includes(',') ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : process.env.CORS_ORIGIN.trim())
-  : '*';
-
-app.use(cors({
-  origin: allowedOrigins,
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (!process.env.CORS_ORIGIN || process.env.CORS_ORIGIN === '*') {
+      return callback(null, true);
+    }
+    const origins = process.env.CORS_ORIGIN.split(',').map(s => s.trim());
+    if (origins.includes(origin) || origin.endsWith('.vercel.app') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
   credentials: true
-}));
+};
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
@@ -53,8 +67,8 @@ function isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-// Helper for sending founder email notification
-async function sendFounderNotification(inquiry) {
+// Helper for sending founder email notification with dynamic file attachments
+async function sendFounderNotification(inquiry, files = []) {
   const founderEmail = process.env.FOUNDER_EMAIL || 'draftwork30@gmail.com';
 
   const host = process.env.SMTP_HOST;
@@ -73,8 +87,14 @@ async function sendFounderNotification(inquiry) {
     auth: { user, pass }
   });
 
+  const attachmentsList = Array.isArray(files) ? files : (files ? [files] : []);
+  const fileNamesText = attachmentsList.length > 0
+    ? attachmentsList.map(f => f.originalname).join(', ')
+    : 'None';
+
   const mailOptions = {
-from: `"Draftwork Inquiries" <draftwork30@gmail.com>`,    to: founderEmail,
+    from: `"Draftwork Inquiries" <draftwork30@gmail.com>`,
+    to: founderEmail,
     subject: `New Project Inquiry — ${inquiry.projectType}`,
     text: `NEW PROJECT INQUIRY\n\n` +
       `Name:\n${inquiry.name}\n\n` +
@@ -86,12 +106,18 @@ from: `"Draftwork Inquiries" <draftwork30@gmail.com>`,    to: founderEmail,
       `Reference Website:\n${inquiry.referenceWebsite || 'N/A'}\n\n` +
       `Project Description:\n${inquiry.projectDescription}\n\n` +
       `Required Features:\n${inquiry.requiredFeatures || 'N/A'}\n\n` +
-      `Submitted:\n${new Date(inquiry.createdAt || Date.now()).toISOString()}\n`
+      `Attached Document:\n${fileNamesText}\n\n` +
+      `Submitted:\n${new Date(inquiry.createdAt || Date.now()).toISOString()}\n`,
+    attachments: attachmentsList.map(f => ({
+      filename: f.originalname,
+      content: f.buffer,
+      contentType: f.mimetype
+    }))
   };
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log('[EMAIL] Founder notification email sent successfully. MessageID:', info.messageId);
+    console.log('[EMAIL] Founder notification email sent successfully with', attachmentsList.length, 'attachment(s). MessageID:', info.messageId);
     return true;
   } catch (err) {
     console.error('[EMAIL] Failed to send founder notification email:', err.message);
@@ -99,8 +125,8 @@ from: `"Draftwork Inquiries" <draftwork30@gmail.com>`,    to: founderEmail,
   }
 }
 
-// Inquiry Endpoint
-app.post('/api/inquiries', inquiryLimiter, async (req, res) => {
+// Inquiry Endpoint (supports JSON and multipart/form-data with attachments)
+app.post('/api/inquiries', inquiryLimiter, upload.any(), async (req, res) => {
   try {
     const {
       name,
@@ -113,6 +139,11 @@ app.post('/api/inquiries', inquiryLimiter, async (req, res) => {
       projectDescription,
       requiredFeatures
     } = req.body || {};
+
+    // Collect uploaded files from req.files or req.file
+    const uploadedFiles = req.files && req.files.length > 0
+      ? req.files
+      : (req.file ? [req.file] : []);
 
     // 1. Server-side validation
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -176,8 +207,8 @@ app.post('/api/inquiries', inquiryLimiter, async (req, res) => {
       };
     }
 
-    // 3. Send email notification to founder (after DB save)
-    await sendFounderNotification(savedRecord);
+    // 3. Send email notification to founder (after DB save) with uploaded binary attachments
+    await sendFounderNotification(savedRecord, uploadedFiles);
 
     // 4. Return success response to visitor
     return res.status(200).json({

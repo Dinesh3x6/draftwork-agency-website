@@ -824,34 +824,78 @@ if (form) {
       submitBtn.disabled = true;
     }
 
-    const payload = {
-      name: form.querySelector('[name="name"]')?.value || '',
-      company: form.querySelector('[name="company"]')?.value || '',
-      email: form.querySelector('[name="email"]')?.value || '',
-      phone: form.querySelector('[name="phone"]')?.value || '',
-      projectType: form.querySelector('[name="type"]')?.value || '',
-      expectedTimeline: form.querySelector('[name="timeline"]')?.value || '',
-      referenceWebsite: form.querySelector('[name="reference"]')?.value || '',
-      projectDescription: form.querySelector('[name="description"]')?.value || '',
-      requiredFeatures: form.querySelector('[name="features"]')?.value || ''
-    };
+    const fileInput = document.getElementById('f-file');
+    const hasFiles = fileInput && fileInput.files && fileInput.files.length > 0;
+    const nameVal = form.querySelector('[name="name"]')?.value || '';
+    const companyVal = form.querySelector('[name="company"]')?.value || '';
+    const emailVal = form.querySelector('[name="email"]')?.value || '';
+    const phoneVal = form.querySelector('[name="phone"]')?.value || '';
+    const typeVal = form.querySelector('[name="type"]')?.value || '';
+    const timelineVal = form.querySelector('[name="timeline"]')?.value || '';
+    const referenceVal = form.querySelector('[name="reference"]')?.value || '';
+    const descriptionVal = form.querySelector('[name="description"]')?.value || '';
+    const featuresVal = form.querySelector('[name="features"]')?.value || '';
 
     try {
-      const apiBase = (typeof window !== 'undefined' && window.API_BASE_URL) ? window.API_BASE_URL : '';
-      const response = await fetch(`${apiBase}/api/inquiries`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const apiBase = (typeof window !== 'undefined' && window.API_BASE_URL)
+        ? window.API_BASE_URL
+        : (isLocal ? 'http://localhost:8080' : 'https://draftwork-api.onrender.com');
 
-      const result = await response.json();
+      let fetchOptions = { method: 'POST' };
 
-      if (response.ok && result.success) {
+      if (hasFiles) {
+        const formData = new FormData();
+        formData.append('name', nameVal);
+        formData.append('company', companyVal);
+        formData.append('email', emailVal);
+        formData.append('phone', phoneVal);
+        formData.append('projectType', typeVal);
+        formData.append('expectedTimeline', timelineVal);
+        formData.append('referenceWebsite', referenceVal);
+        formData.append('projectDescription', descriptionVal);
+        formData.append('requiredFeatures', featuresVal);
+
+        for (let i = 0; i < fileInput.files.length; i++) {
+          formData.append('file', fileInput.files[i]);
+        }
+        fetchOptions.body = formData;
+      } else {
+        fetchOptions.headers = { 'Content-Type': 'application/json' };
+        fetchOptions.body = JSON.stringify({
+          name: nameVal,
+          company: companyVal,
+          email: emailVal,
+          phone: phoneVal,
+          projectType: typeVal,
+          expectedTimeline: timelineVal,
+          referenceWebsite: referenceVal,
+          projectDescription: descriptionVal,
+          requiredFeatures: featuresVal
+        });
+      }
+
+      const response = await fetch(`${apiBase}/api/inquiries`, fetchOptions);
+
+      const contentType = response.headers.get('content-type') || '';
+      let result = null;
+
+      if (contentType.includes('application/json')) {
+        result = await response.json();
+      } else {
+        const text = await response.text();
+        console.error('[API RESPONSE ERROR] Expected JSON, received:', text);
+        throw new Error('Unable to connect to the inquiry service. Please check your network connection and try again.');
+      }
+
+      if (response.ok && result && result.success) {
         form.reset();
+        const fileLabel = document.getElementById('fileLabel');
+        if (fileLabel) fileLabel.textContent = 'Click to attach a brief, spec, or design reference';
         form.style.display = 'none';
         if (successBox) successBox.classList.add('show');
       } else {
-        throw new Error(result.message || 'Something went wrong while submitting your inquiry. Please try again.');
+        throw new Error(result?.message || 'Something went wrong while submitting your inquiry. Please try again.');
       }
     } catch (err) {
       if (submitBtn) {
